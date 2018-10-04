@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<title>OnlinePad</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.1.3/css/bootstrap.min.css">
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.3/umd/popper.min.js"></script>
+<script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.1.3/js/bootstrap.min.js"></script>
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+<style>
+	.navbar {
+		padding:0rem;
+		margin-bottom:0rem;
+	}
+
+	.dropdown .dropdown-menu {
+		border-radius:0;
+ 	}
+
+	/* Medium devices (tablets, 768px and up) 
+	The navbar toggle appears at this breakpoint */
+	@media (min-width: 768px) {  
+		.dropdown:hover .dropdown-menu {
+    		display: block;
+    		margin-top: 0;
+  			border-radius:0;
+ 		}
+	}
+
+	#linesBar {
+		width: 3em;
+		float:left;
+		padding: 0 10px 0 0;
+		text-align: right;
+	}
+	
+	#buffer{
+        width: calc(100% - 3em);
+		float:left;        
+		margin:0;
+        caret-color: white;
+	}
+
+	#position{
+		margin:0;
+	}
+
+	.editor{
+        width: 500%;
+
+        background-color: #333;
+        color: white;
+        font-size: 14px;
+        font-family: monospace;
+	}
+	
+    .clearfix::after{
+        content: "";
+        clear: both;
+        display: table;
+    }
+
+	#file-upload{
+		display:none;
+	}
+
+    .statement {
+        color: orange;
+    }
+
+    .line {
+        width: 500%;
+    }
+</style>
+
+<script>
+	// Default file name to save
+	var fileName = "filename.txt";
+	// element with text
+	var BufferElement;
+	var oldAnchOffset;
+	var oldFocOffset;
+	var oldStartLine;
+	var oldEndLine;
+	var selectedLetters;
+	var selectedLines;
+
+	window.onload = function(){
+		BufferElement = document.getElementById("buffer");
+		BufferElement.focus();
+		
+		if(getWholeText() == ""){
+			var text = decodeURIComponent(getCookie('data'))
+			colorize(text);
+		}
+		
+		BufferElement.addEventListener("keydown", onKeyDown);
+		
+		BufferElement.addEventListener("keyup", repair);
+
+		BufferElement.addEventListener("mouseup", showCaretPos);
+
+		generateLinesBar();
+		showCaretPos();
+	}
+
+	// function before unload (close, refresh)
+	window.onbeforeunload = function(){
+		var text = getWholeText();
+
+		setCookie('data', encodeURIComponent(text));
+	}
+
+	// https://www.w3schools.com/js/js_cookies.asp
+	function setCookie(cname, cvalue) {
+		document.cookie = cname + "=" + cvalue + ";";
+	}
+
+	function getCookie(cname) {
+		var name = cname + "=";
+		var ca = document.cookie.split(';');
+		for(var i = 0; i < ca.length; i++) {
+			var c = ca[i];
+			while (c.charAt(0) == ' ') {
+				c = c.substring(1);
+			}
+			if (c.indexOf(name) == 0) {
+				return c.substring(name.length, c.length);
+			}
+		}
+		return "";
+	}
+
+	// repair bufferElement after deleting everything (e.g. holding Backspace)
+    function repair(){
+        if(getNumberOfLines() == 0){
+            BufferElement.innerHTML = '<div class="line" style="height:21px"><span class="other" style="height:21px"></span></div>';
+        }
+    }
+
+	function onKeyDown(event) {
+		var key = event.key;
+		var textBeforeSelection = getTextBeforeSelection();
+		var textAfterSelection = getTextAfterSelection();
+
+		// if enter or enter + shift
+		if (event.which == 13 || event.which == 13 && event.shiftKey) {
+			var lineToSetCaret = getBeginSelectionLine() + 1;
+
+			colorize(textBeforeSelection + '\n' + textAfterSelection)
+			setCaretPosition(lineToSetCaret, 1);
+		}
+		// if (event.shiftKey || event.ctrlKey || event.altKey) do nothing
+		else if (event.shiftKey || event.ctrlKey || event.altKey) {
+			return;
+		}
+        else if(key === 'Tab') { // tab was pressed
+			
+			var anchOffset = window.getSelection().anchorOffset;
+			var focOffset = window.getSelection().focusOffset;
+			
+			if(anchOffset < focOffset){
+				var offset = focOffset;
+			}
+			else{
+				var offset = anchOffset;				
+			}
+
+			var numOfTabs = 4-(offset%4);
+			var spacesToInsert = ""
+			for(var i = 0;i < numOfTabs; i++){
+				spacesToInsert += " ";
+			}
+			
+			var offsetToSet = getCaretOffset() + numOfTabs;
+			var lineToSetCaret = getBeginSelectionLine();
+			
+			colorize(textBeforeSelection + spacesToInsert + textAfterSelection);
+			setCaretPosition(lineToSetCaret, offsetToSet);
+    	}
+		else if(key === 'Backspace'){
+			var lineToSetCaret = getBeginSelectionLine();
+			var offsetToSet = getCaretOffset() - 1;
+
+			if(offsetToSet < 1){
+				lineToSetCaret--;
+
+				if(lineToSetCaret < 1){
+					lineToSetCaret = 1;
+					offsetToSet = 1;
+				}
+				else{
+					offsetToSet = getLengthOfLine(lineToSetCaret) + 1;
+				}
+			}
+			
+			textBeforeSelectionSliced = textBeforeSelection.slice(0, -1);
+
+			colorize(textBeforeSelectionSliced + textAfterSelection);
+			setCaretPosition(lineToSetCaret, offsetToSet);
+		}
+		else if(key === 'Delete'){ //Działa a to ze nie usuwa lini to wina colorize który dodaje space na koncu
+			var lineToSetCaret = getBeginSelectionLine();
+			var offsetToSet = getCaretOffset();
+
+			textAfterSelectionSliced = textAfterSelection.slice(1);
+
+			colorize(textBeforeSelection + textAfterSelectionSliced);
+			setCaretPosition(lineToSetCaret, offsetToSet);
+		}
+		else if(event.keyCode == 37){
+			arrowLeftPressed();
+		}
+		else if(event.keyCode == 38){
+			arrowUpPressed();
+		}
+		else if(event.keyCode == 39){
+			arrowRightPressed();
+		}
+		else if(event.keyCode == 40){
+			arrowDownPressed();
+		}
+		// if printable and non controlable key
+		else if (key.length === 1) {
+			var lineToSetCaret = getBeginSelectionLine();
+			var offsetToSet = getCaretOffset() + 1;
+			
+			colorize(textBeforeSelection + key + textAfterSelection);
+			setCaretPosition(lineToSetCaret, offsetToSet);
+		}
+		else{
+			return;
+		}
+
+		event.stopPropagation();
+		event.preventDefault();
+		
+		generateLinesBar();
+		showCaretPos();
+
+		return false;
+	}
+
+	function arrowLeftPressed(){
+		var lineToSetCaret = getCaretLine();
+		var offsetToSet = getCaretOffset() - 1;
+
+		if(offsetToSet < 1){
+			lineToSetCaret--;
+
+			if(lineToSetCaret < 1){
+				lineToSetCaret = 1;
+				offsetToSet = 1;
+			}
+			else{
+				offsetToSet = getLengthOfLine(lineToSetCaret) + 1;
+			}
+		}
+		
+		setCaretPosition(lineToSetCaret, offsetToSet);
+	}
+
+	function arrowUpPressed(){
+		var lineToSetCaret = getCaretLine() - 1;
+		var offsetToSet = getCaretOffset();
+
+		if(lineToSetCaret < 1){
+			lineToSetCaret = 1;
+			offsetToSet = 1;
+		}
+		
+		if(offsetToSet + 1 > getLengthOfLine(lineToSetCaret)){
+			offsetToSet = getLengthOfLine(lineToSetCaret) + 1;
+		}
+
+		setCaretPosition(lineToSetCaret, offsetToSet);		
+	}
+
+	function arrowRightPressed(){
+		var lineToSetCaret = getCaretLine();
+		var offsetToSet = getCaretOffset() + 1;
+		var noOfLines = getNumberOfLines();
+
+		if(offsetToSet + 1 > getLengthOfLine(lineToSetCaret)){
+			lineToSetCaret++;
+			
+			if(lineToSetCaret > noOfLines){
+				lineToSetCaret = noOfLines;
+				offsetToSet = getLengthOfLine(noOfLines) + 1;
+			}
+			else{
+				offsetToSet = 1;
+			}
+		}
+
+		setCaretPosition(lineToSetCaret, offsetToSet);
+	}
+
+	function arrowDownPressed(){
+		var lineToSetCaret = getCaretLine() + 1;
+		var offsetToSet = getCaretOffset();
+
+		var noOfLines = getNumberOfLines();
+		if(lineToSetCaret > noOfLines){
+			lineToSetCaret = noOfLines;
+			offsetToSet = getLengthOfLine(noOfLines) + 1;
+		}
+
+		if(offsetToSet + 1 > getLengthOfLine(lineToSetCaret)){
+			offsetToSet = getLengthOfLine(lineToSetCaret) + 1;
+		}
+		
+		setCaretPosition(lineToSetCaret, offsetToSet);		
+	}
+
+	function getTextBeforeSelection(){
+		var startLineEl = window.getSelection().anchorNode;
+		var endLineEl = window.getSelection().focusNode;
+
+		var startLine = GetLineOfElement(startLineEl);
+		var endLine = GetLineOfElement(endLineEl);
+		
+		var anchOffset = window.getSelection().anchorOffset;
+		var focOffset = window.getSelection().focusOffset;
+
+		if(startLine < endLine) {
+			var beginLine = startLine;
+		}
+		else {
+			var beginLine = endLine;
+		}
+
+		var offset = getCaretOffsetBeforeSelection();
+
+		var text = '';
+		for(var i = 1; i < beginLine; i++){
+			text += getTextOfLine(i) + '\n';
+		}
+
+		var tmp = getTextOfLine(beginLine).substring(0,offset);
+		text += tmp;
+
+		return text;
+	}
+
+	function getTextAfterSelection(){
+		var startLineEl = window.getSelection().anchorNode;
+		var endLineEl = window.getSelection().focusNode;
+
+		var startLine = GetLineOfElement(startLineEl);
+		var endLine = GetLineOfElement(endLineEl);
+		
+		var anchOffset = window.getSelection().anchorOffset;
+		var focOffset = window.getSelection().focusOffset;
+		
+		if(startLine < endLine) {
+			var finishLine = endLine;
+		}
+		else {
+			var finishLine = startLine;
+		}
+
+		var offset = getCaretOffsetBeforeSelection();
+		
+		var text = getTextOfLine(finishLine).substring(offset);
+		
+		var noOfLines = getNumberOfLines();
+		for(var i = finishLine+1; i <= noOfLines; i++){
+			text +=  '\n' + getTextOfLine(i);
+		}
+
+		return text;
+	}
+
+	//  |   x = CaretOffset
+	//------>
+	//  |
+	// \ / y = line
+	//
+	// get caret x position (CaretOffset) before selection
+	function getCaretOffsetBeforeSelection(){
+		var anchNode = window.getSelection().anchorNode;
+		var focNode = window.getSelection().focusNode;
+
+		var startLine = GetLineOfElement(anchNode);
+		var endLine = GetLineOfElement(focNode);
+
+		var anchOffset = window.getSelection().anchorOffset;
+		var focOffset = window.getSelection().focusOffset;
+
+		if(anchNode.parentElement.parentElement.parentElement == BufferElement){
+			anchNode = anchNode.parentElement;
+
+			while(anchNode.previousSibling){
+				anchNode = anchNode.previousSibling;
+				anchOffset += anchNode.innerText.length;
+			}
+		}
+
+		if(focNode.parentElement.parentElement.parentElement == BufferElement){
+			focNode = focNode.parentElement;
+
+			while(focNode.previousSibling){
+				focNode = focNode.previousSibling;
+				focOffset += focNode.innerText.length;
+			}
+		}
+
+		if(startLine == endLine) {
+			if(anchOffset < focOffset){
+				var offset = focOffset;
+			}
+			else{
+				var offset = anchOffset;				
+			}
+		}		
+		else if(startLine < endLine) {
+			var offset = focOffset;
+		}
+		else {
+			var offset = anchOffset;
+		}
+
+		return offset;
+	}
+
+	function getCaretOffsetAfterSelection(){
+		var anchNode = window.getSelection().anchorNode;
+		var focNode = window.getSelection().focusNode;
+
+		var startLine = GetLineOfElement(anchNode);
+		var endLine = GetLineOfElement(focNode);
+
+		var anchOffset = window.getSelection().anchorOffset;
+		var focOffset = window.getSelection().focusOffset;
+
+		if(anchNode.parentElement.parentElement.parentElement == BufferElement){
+			anchNode = anchNode.parentElement;
+
+			while(anchNode.previousSibling){
+				anchNode = anchNode.previousSibling;
+				anchOffset += anchNode.innerText.length;
+			}
+		}
+
+		if(focNode.parentElement.parentElement.parentElement == BufferElement){
+			focNode = focNode.parentElement;
+
+			while(focNode.previousSibling){
+				focNode = focNode.previousSibling;
+				focOffset += focNode.innerText.length;
+			}
+		}
+
+		if(startLine == endLine) {
+			if(anchOffset < focOffset){
+				var offset = focOffset;
+			}
+			else{
+				var offset = anchOffset;				
+			}
+		}		
+		else if(startLine < endLine) {
+			var offset = focOffset;
+		}
+		else {
+			var offset = anchOffset;
+		}
+
+		return offset;
+	}
+
+	function generateURL(){
+		var urlTextBox = document.getElementById("txextBoxURL");
+		var content = BufferElement.innerText;
+		var varName = encodeURIComponent('data')
+		var value = encodeURIComponent(content);
+		
+		console.log(value);
+		
+		var addy = document.location.host;
+		var url = addy + "/onlinepad/?" + varName + "=" + value;
+
+		urlTextBox.value = url;
+		document.getElementById("getURL").style.visibility = "visible";
+	}
+
+	function copyToClipboard(){
+		document.getElementById("txextBoxURL").select();
+		document.execCommand("copy");
+	}
+
+	function HideGetUrl(){
+		document.getElementById("getURL").style.visibility = "hidden";
+	}
+
+	var openFile = function(event) {
+		var input = event.target;
+
+		var reader = new FileReader();
+		reader.onload = function(){
+		var arrayBuffer = reader.result;
+
+		str = String.fromCharCode.apply(null,new Uint8Array(arrayBuffer));
+		colorize(str);
+		};
+		
+		reader.readAsArrayBuffer(input.files[0]);
+	};
+
+	// save file
+	function download(isNewName) {
+		var data = getWholeText();
+		if(isNewName == 1){
+			name=document.getElementById("filename").value;
+		}
+		else{
+			name = fileName;
+		}
+		var type='text/plain';
+
+		var file = new Blob([data], {type: type});
+		if (window.navigator.msSaveOrOpenBlob) // IE10+
+			window.navigator.msSaveOrOpenBlob(file, name);
+		else { // Others
+			var a = document.createElement("a"),
+			url = URL.createObjectURL(file);
+			a.href = url;
+			a.download = name;
+			document.body.appendChild(a);
+			a.click();
+			
+			setTimeout(function() {
+				document.body.removeChild(a);
+				window.URL.revokeObjectURL(url);  
+			}, 0); 
+		}
+	}
+
+	// save (with default name [in variable "fileName"])
+	function save(){
+		download(0);
+	}
+
+	// save as (with new name [name in text box])
+	function saveAs(){
+		document.getElementById("getFilename").style.display = "block";
+	}
+
+	function cancelSaveFile(){
+		document.getElementById("getFilename").style.display = "none";
+	}
+
+	function getTextOfLine(line) {
+		return BufferElement.children.item(line-1).innerText;
+	}
+
+	function getWholeText(){
+		var noLines = getNumberOfLines();
+		var text = "";
+
+		for(var i = 1; i <= noLines; i++){
+			text += getTextOfLine(i);
+			if(i < noLines){
+				text += '\n';				
+			}
+		}
+
+		return text;
+	}
+
+	function getLengthOfWholeText(){
+		var noLines = getNumberOfLines();
+		var length = 0;
+
+		for(var i = 1; i <= noLines; i++){
+			length += getLengthOfLine(i);
+		}
+
+		return length;
+	}
+
+	function getLengthOfLine(line) {
+		return getTextOfLine(line).length;
+	}
+
+	function getLengthOfWholeText(){
+		var noLines = getNumberOfLines();
+		var length = 0;
+
+		for(var i = 1; i <= noLines; i++){
+			length += getLengthOfLine(i);
+		}
+
+		return length;
+	}
+
+	// generate a bar with line numbers
+	function generateLinesBar(){
+		var linesBar = document.getElementById("linesBar");
+		var result = "";
+		var noOfLines = getNumberOfLines();			
+
+		if(noOfLines < 1){
+			noOfLines = 1;
+		}
+
+		for(i=1;i<=noOfLines;i++){
+			result += i + '<br>';
+		}
+
+		linesBar.innerHTML = result;
+	}
+
+	function getNumberOfLines(){
+		return BufferElement.childElementCount;
+	}
+
+	function GetLineOfElement(element){
+		var behaben = element;
+		var child = BufferElement.children;
+		
+		// if (element == BufferElement){
+		// console.log(behaben);
+		// 	return getCaretOffset();
+		// }
+		// else
+		if(element.parentElement != BufferElement)
+		{
+			element = element.parentElement;
+			
+			if(element.parentElement != BufferElement)
+			{
+				element= element.parentElement;
+			}
+		}
+
+        for(var i = 0; i < child.length; i++){
+			if(child[i] === element){
+				return i + 1;
+			}
+		}
+
+		return 1;
+	}
+
+	// set caret (y, x) = (line, offset)
+	function setCaretPosition(line, offset){
+		let range = window.getSelection().getRangeAt(0);
+		// range.deleteContents();
+
+		lineEl = BufferElement.children.item(line-1);
+		// console.log(lineEl.children.item(0));
+		lineChil = lineEl.childNodes;
+		// console.log(lineChil.length);
+		// console.log(lineChil);
+		offset--;
+		var tmpOffset = 0;
+		var tmpIndexNode;
+		for(var i = 0; i < lineChil.length; i++){
+			var tmpStr = lineChil[i].innerText;
+
+			// console.log(tmpStr);
+			// console.log(tmpStr.length);
+
+			tmpOffset += tmpStr.length;
+			if(tmpOffset >= offset){
+				tmpIndexNode = i;
+				tmpOffset = tmpOffset - tmpStr.length;
+				tmpOffset = offset - tmpOffset;			
+				break;
+			}
+		}
+
+		//create a new range
+		// console.log("tmp: " + tmpOffset);
+		// console.log("tmpIndexNode: " + tmpIndexNode);
+		
+		range = document.createRange();
+		
+		// if(lineChil[tmpIndexNode].nodeName == "#text"){
+		// 	range.setStart(lineChil[tmpIndexNode], tmpOffset);
+		// }
+		// else{
+		// console.log(lineChil[tmpIndexNode].firstChild)
+		// if(document.body.contains(lineChil[tmpIndexNode].firstChild))
+
+		if(typeof(lineChil[tmpIndexNode].firstChild) != 'undefined' && lineChil[tmpIndexNode].firstChild != null){
+			range.setStart(lineChil[tmpIndexNode].firstChild, tmpOffset);
+		}
+		else{
+			range.setStart(lineChil[tmpIndexNode], 0);			
+		}
+		
+
+		// }
+		
+		range.collapse(true);
+
+		//make the cursor there
+		let sel = window.getSelection();
+		sel.removeAllRanges();
+		sel.addRange(range);				
+	}
+
+	function getCaretLine(){
+		var startLineEl = window.getSelection().anchorNode;
+		var endLineEl = window.getSelection().focusNode;
+
+		var startLine = GetLineOfElement(startLineEl);
+		var endLine = GetLineOfElement(endLineEl);
+
+		selectedLines = Math.abs(endLine - startLine) + 1;
+		if(oldStartLine != startLine) {
+			oldStartLine = startLine;
+			return startLine;
+		}
+		else {
+			oldEndLine = endLine;
+			return endLine;
+		}
+	}
+	
+	function getBeginSelectionLine(){
+		var startLineEl = window.getSelection().anchorNode;
+		var endLineEl = window.getSelection().focusNode;
+
+		var startLine = GetLineOfElement(startLineEl);
+		var endLine = GetLineOfElement(endLineEl);
+		
+		if(startLine < endLine) {
+			return startLine;
+		}
+		else {
+			return endLine;
+		}
+	}
+
+	function getCaretOffset(){
+		var anchNode = window.getSelection().anchorNode;
+		var focNode = window.getSelection().focusNode;
+
+		var anchOffset = window.getSelection().anchorOffset + 1;
+		var focOffset = window.getSelection().focusOffset +1;
+
+		if(anchNode.parentElement.parentElement.parentElement == BufferElement){
+			anchNode = anchNode.parentElement;
+
+			while(anchNode.previousSibling){
+				anchNode = anchNode.previousSibling;
+				anchOffset += anchNode.innerText.length;
+			}
+		}
+
+		if(focNode.parentElement.parentElement.parentElement == BufferElement){
+			focNode = focNode.parentElement;
+
+			while(focNode.previousSibling){
+				focNode = focNode.previousSibling;
+				focOffset += focNode.innerText.length;
+			}
+		}
+
+		selectedLetters = Math.abs(focOffset - anchOffset);
+		if(oldAnchOffset != anchOffset){
+			oldAnchOffset = anchOffset;
+			return anchOffset;
+		}
+		else{
+			oldFocOffset = focOffset;
+			return focOffset;
+		}
+	}
+
+	// https://codepen.io/neoux/pen/OVzMor
+	function showCaretPos() {
+		var caretPosEl = document.getElementById("position");
+		caretPosEl.innerHTML = "Caret position: " + getCaretOffset() + " line: " + getCaretLine();
+		
+		if(selectedLines > 1){
+			caretPosEl.innerHTML += " | (Selected: " + selectedLines + " lines)";
+		}
+		else if(selectedLetters != 0){
+			caretPosEl.innerHTML += " | (Selected: " + selectedLetters + " letters)";
+		}
+
+		caretPosEl.innerHTML += " | Length: " + getLengthOfWholeText();
+		caretPosEl.innerHTML += " Lines: " + getNumberOfLines();
+	}
+
+    function colorize(text){
+        var lines = text.split("\n");
+        var newHTML = "";
+		
+        for(var line of lines){
+	        newHTML += "<div class='line' style='height:21px'>";
+            
+            newHTML += colorizeLine(line);            
+                        
+            newHTML += "</div>";
+        }
+
+        BufferElement.innerHTML = newHTML;
+    }
+
+    function colorizeLine(line){
+		line = line.replace(/\xa0/g, " ");
+        var word = line.split(" ");
+
+        var arrSQL = [
+			"SELECT",
+			"FROM",
+			"WHERE",
+			"LIKE",
+			"BETWEEN",
+			"NOT LIKE",
+			"FALSE",
+			"NULL",
+			"FROM",
+			"TRUE",
+			"NOT IN"
+		];
+
+        newHTML = "";
+		$.each(word, function(index, value){
+			if(arrSQL.contains(value.toUpperCase())){
+				newHTML += "<span class='statement'>" + value + "</span>";
+			}
+			else {
+				newHTML += "<span class='other'>" + value + "</span>";
+			}
+
+			if(index < word.length - 1){
+				newHTML += "<span class='other'>&nbsp;</span>";// "&nbsp;";//"&nbsp;";
+			}
+		});
+
+        return newHTML;
+    }
+
+	Array.prototype.contains = function(obj) {
+		var i = this.length;
+		while (i--) {
+			if (this[i] === obj) {
+				return true;
+			}
+		}
+		return false;
+	}
+</script>
+</head>
+<body>
+
+<div class="editor clearfix">
+	<div id="linesBar">1</div>
+    <div contenteditable='true' id='buffer'>
+        <div class="line" style="height:21px">
+			<span class='other'></span>
+		</div>
+    </div>
+	<div id="position"></div>
+</div>
+
+</body>
+</html>
