@@ -82,6 +82,7 @@
 
 		BufferElement.addEventListener("mouseup", showCaretPos);	// on click
 		BufferElement.addEventListener("keydown", showCaretPos);	// pressed shift + arrows
+		BufferElement.addEventListener("keyup", showCaretPos);	// pressed shift + arrows
 
 		generateLinesBar();
 		showCaretPos();
@@ -121,6 +122,13 @@
         }
     }
 
+	function clearEditor(){
+		colorize("");
+
+		generateLinesBar();
+		showCaretPos();
+    }
+
 	function onKeyDown(event) {
 		var key = event.key;
 		var textBeforeSelection = getTextBeforeSelection();
@@ -128,7 +136,7 @@
 
 		// if enter or enter + shift
 		if (event.which == 13 || event.which == 13 && event.shiftKey) {
-			var lineToSetCaret = getBeginSelectionLine() + 1;
+			var lineToSetCaret = getLineBeginSelection() + 1;
 
 			colorize(textBeforeSelection + '\n' + textAfterSelection)
 			setCaretPosition(lineToSetCaret, 1);
@@ -156,14 +164,14 @@
 			}
 			
 			var offsetToSet = getCaretOffset() + numOfTabs;
-			var lineToSetCaret = getBeginSelectionLine();
+			var lineToSetCaret = getLineBeginSelection();
 			
 			colorize(textBeforeSelection + spacesToInsert + textAfterSelection);
 			setCaretPosition(lineToSetCaret, offsetToSet);
     	}
 		else if(key === 'Backspace'){
-			var lineToSetCaret = getBeginSelectionLine();
-			var offsetToSet = getCaretOffset() - 1;
+			var lineToSetCaret = getLineBeginSelection();
+			var offsetToSet = getCaretOffsetBeforeSelection();
 
 			if(offsetToSet < 1){
 				lineToSetCaret--;
@@ -183,8 +191,8 @@
 			setCaretPosition(lineToSetCaret, offsetToSet);
 		}
 		else if(key === 'Delete'){ //Działa a to ze nie usuwa lini to wina colorize który dodaje space na koncu
-			var lineToSetCaret = getBeginSelectionLine();
-			var offsetToSet = getCaretOffset();
+			var lineToSetCaret = getLineBeginSelection();
+			var offsetToSet = getCaretOffsetBeforeSelection();
 
 			textAfterSelectionSliced = textAfterSelection.slice(1);
 
@@ -205,7 +213,7 @@
 		}
 		// if printable and non controlable key
 		else if (key.length === 1) {
-			var lineToSetCaret = getBeginSelectionLine();
+			var lineToSetCaret = getLineBeginSelection();
 			var offsetToSet = getCaretOffset() + 1;
 			
 			colorize(textBeforeSelection + key + textAfterSelection);
@@ -296,23 +304,8 @@
 		setCaretPosition(lineToSetCaret, offsetToSet);		
 	}
 
-	function getTextBeforeSelection(){
-		var startLineEl = window.getSelection().anchorNode;
-		var endLineEl = window.getSelection().focusNode;
-
-		var startLine = GetLineOfElement(startLineEl);
-		var endLine = GetLineOfElement(endLineEl);
-		
-		var anchOffset = window.getSelection().anchorOffset;
-		var focOffset = window.getSelection().focusOffset;
-
-		if(startLine < endLine) {
-			var beginLine = startLine;
-		}
-		else {
-			var beginLine = endLine;
-		}
-
+	function getTextBeforeSelection(){		
+		var beginLine = getLineBeginSelection()
 		var offset = getCaretOffsetBeforeSelection();
 
 		var text = '';
@@ -327,28 +320,13 @@
 	}
 
 	function getTextAfterSelection(){
-		var startLineEl = window.getSelection().anchorNode;
-		var endLineEl = window.getSelection().focusNode;
-
-		var startLine = GetLineOfElement(startLineEl);
-		var endLine = GetLineOfElement(endLineEl);
+		var endLine = getLineEndSelection();
+		var offset = getCaretOffsetAfterSelection();
 		
-		var anchOffset = window.getSelection().anchorOffset;
-		var focOffset = window.getSelection().focusOffset;
-		
-		if(startLine < endLine) {
-			var finishLine = endLine;
-		}
-		else {
-			var finishLine = startLine;
-		}
-
-		var offset = getCaretOffsetBeforeSelection();
-		
-		var text = getTextOfLine(finishLine).substring(offset);
+		var text = getTextOfLine(endLine).substring(offset);
 		
 		var noOfLines = getNumberOfLines();
-		for(var i = finishLine+1; i <= noOfLines; i++){
+		for(var i = endLine+1; i <= noOfLines; i++){
 			text +=  '\n' + getTextOfLine(i);
 		}
 
@@ -391,10 +369,12 @@
 
 		if(startLine == endLine) {
 			if(anchOffset < focOffset){
-				var offset = focOffset;
+				var offset = anchOffset;				
+				// var offset = focOffset;
 			}
 			else{
-				var offset = anchOffset;				
+				var offset = focOffset;
+				// var offset = anchOffset;				
 			}
 		}		
 		else if(startLine < endLine) {
@@ -704,7 +684,7 @@
 		}
 	}
 	
-	function getBeginSelectionLine(){
+	function getLineBeginSelection(){
 		var startLineEl = window.getSelection().anchorNode;
 		var endLineEl = window.getSelection().focusNode;
 
@@ -716,6 +696,21 @@
 		}
 		else {
 			return endLine;
+		}
+	}
+
+	function getLineEndSelection(){
+		var startLineEl = window.getSelection().anchorNode;
+		var endLineEl = window.getSelection().focusNode;
+
+		var startLine = GetLineOfElement(startLineEl);
+		var endLine = GetLineOfElement(endLineEl);
+		
+		if(startLine < endLine) {
+			return endLine;
+		}
+		else {
+			return startLine;
 		}
 	}
 
